@@ -35,7 +35,64 @@ install=0
 [ "${1:-}" = "--install" ] && install=1
 
 # ------------------------------------------------------------- packages ----
-if command -v dpkg-query > /dev/null; then
+if command -v pacman > /dev/null; then
+    # Arch includes development headers and Python's venv module in the main
+    # packages. SDL2 is provided by sdl2-compat in the official repositories.
+    ARCH_PACKAGES=(
+        base-devel clang lld cmake ninja pkgconf git python
+        sdl2-compat freetype2 gtk3 vulkan-headers vulkan-icd-loader vulkan-tools
+    )
+    missing=()
+    for p in "${ARCH_PACKAGES[@]}"; do
+        if ! pacman -Q "$p" > /dev/null 2>&1; then
+            missing+=("$p")
+        fi
+    done
+
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "packages: all present"
+    elif [ "$install" -eq 1 ]; then
+        echo "installing: ${missing[*]}"
+        # Refresh and upgrade together: Arch does not support partial upgrades.
+        sudo pacman -Syu --needed "${missing[@]}"
+    else
+        echo "missing packages: ${missing[*]}"
+        echo "Install them with:"
+        echo "    sudo pacman -Syu --needed ${missing[*]}"
+        echo
+    fi
+
+    # Cross-binutils is separate from Arch's native binutils package.
+    if ! command -v mips-linux-gnu-as > /dev/null ||
+       ! command -v mips-linux-gnu-ld > /dev/null; then
+        aur_helper=""
+        for helper in yay paru; do
+            if command -v "$helper" > /dev/null; then
+                aur_helper="$helper"
+                break
+            fi
+        done
+        if [ "$install" -eq 1 ] && [ -n "$aur_helper" ]; then
+            "$aur_helper" -S --needed mips-linux-gnu-binutils
+        else
+            echo "Missing MIPS cross-binutils (AUR: mips-linux-gnu-binutils)."
+            echo "Install with: yay -S --needed mips-linux-gnu-binutils"
+            echo "or build https://aur.archlinux.org/packages/mips-linux-gnu-binutils with makepkg -si."
+            echo "Then re-run this script."
+            exit 1
+        fi
+        if ! command -v mips-linux-gnu-as > /dev/null ||
+           ! command -v mips-linux-gnu-ld > /dev/null; then
+            echo "MIPS cross-binutils installation did not provide the required assembler and linker." >&2
+            exit 1
+        fi
+    fi
+    echo "Vulkan runtime: install the driver for your GPU (e.g. vulkan-radeon, vulkan-intel, or nvidia-utils)."
+    if [ ${#missing[@]} -ne 0 ] && [ "$install" -eq 0 ]; then
+        echo "Re-run with --install after reviewing the package list."
+        exit 1
+    fi
+elif command -v dpkg-query > /dev/null; then
     missing=()
     for p in "${PACKAGES[@]}"; do
         if dpkg-query -W -f='${Status}' "$p" 2> /dev/null | grep -q "install ok installed"; then
@@ -67,7 +124,7 @@ if command -v dpkg-query > /dev/null; then
         echo
     fi
 else
-    echo "Not a dpkg-based distribution -- install the equivalents of these yourself:"
+    echo "Unsupported package manager -- install the equivalents of these yourself:"
     printf '    %s\n' "${PACKAGES[@]}"
     echo
 fi
