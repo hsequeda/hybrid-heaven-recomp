@@ -16,6 +16,7 @@ TOOLS = Path(__file__).resolve().parent
 # ---- port config: the patch scripts this port applies, in order ------------
 # Scripts that are not present in tools/ are skipped.
 SCRIPTS = [
+    "patch_rmlui_includes.py",     # RmlUi: explicit integer types for recent standard libraries
     "patch_rsprecomp.py",          # RSPRecomp: indirect jumps ignore the low two bits
     "patch_n64recomp.py",          # N64Recomp: use_lookup_for_all_function_calls config key
     "patch_runtime_shutdown.py",   # librecomp/ultramodern: join workers before freeing RDRAM

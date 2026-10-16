@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <SDL.h>
@@ -26,7 +27,6 @@
 #endif
 #if defined(__APPLE__)
 #   include <SDL_metal.h>
-#   include <pthread.h>
 #endif
 
 #include <ultramodern/ultramodern.hpp>
@@ -62,6 +62,9 @@
 RspExitReason aspMain_run(uint8_t* rdram, uint32_t ucode_addr);
 
 namespace {
+
+// Initialized before main, before any runtime worker threads are created.
+const std::thread::id g_main_thread = std::this_thread::get_id();
 
 SDL_Window* g_window = nullptr;
 SDL_GameController* g_controller = nullptr;
@@ -148,21 +151,13 @@ void refresh_players() {
 #endif
 
 void poll_input() {
-#if defined(__APPLE__)
-    // On macOS this must not run anywhere but the main thread. Draining SDL's
-    // event queue pumps Cocoa, and AppKit is main-thread-only -- doing it from
-    // another thread is undefined, and in practice deadlocks or aborts.
-    //
-    // This function has two callers. update_gfx() is the main loop body and is
-    // on the main thread; osContStartReadData reaches it from the game thread,
-    // wanting a fresh pad reading before the game looks at one. The second
-    // caller is the problem, and the fix is for it to do nothing: the pad state
-    // it wanted was refreshed by the main thread microseconds ago, and
-    // get_input() reads that snapshot either way.
-    if (!pthread_main_np()) {
+    // update_gfx polls on the main thread; osContStartReadData also calls
+    // this callback from a game thread. SDL event pumping belongs on the main
+    // thread, and concurrent joystick enumeration in sdl2-compat double-frees
+    // its cached device list. Game threads use the state already polled here.
+    if (std::this_thread::get_id() != g_main_thread) {
         return;
     }
-#endif
 #if HH_WITH_FRONTEND
     // recompinput::handle_events() is the library's own polling loop, and it
     // has to be the only thing draining SDL's event queue: a hand-rolled loop
